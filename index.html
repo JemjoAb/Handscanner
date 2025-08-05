@@ -1,0 +1,91 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Automatisk Handscanner</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; text-align: center; }
+        video, canvas { border: 1px solid #ccc; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Automatisk Handscanner</h1>
+    <p>Placera handen med en linjal i bild. Tryck på "Analysera" för att mäta nagelbreddarna automatiskt.</p>
+    <video id="video" width="640" height="480" autoplay></video><br>
+    <button onclick="analyze()">Analysera</button>
+    <canvas id="canvas" width="640" height="480"></canvas>
+    <div id="output"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
+
+    <script>
+        const videoElement = document.getElementById('video');
+        const canvasElement = document.getElementById('canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const output = document.getElementById('output');
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
+
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+        });
+        camera.start();
+
+        let lastResults = null;
+
+        function onResults(results) {
+            lastResults = results;
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            if (results.multiHandLandmarks) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 2 });
+                    drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 1 });
+                }
+            }
+            canvasCtx.restore();
+        }
+
+        function analyze() {
+            if (!lastResults || !lastResults.multiHandLandmarks || lastResults.multiHandLandmarks.length === 0) {
+                output.innerHTML = "<p>Ingen hand hittades.</p>";
+                return;
+            }
+
+            const landmarks = lastResults.multiHandLandmarks[0];
+            const fingerTips = [4, 8, 12, 16, 20]; // Tumme till lillfinger
+            output.innerHTML = "<h3>Uppmätta fingertoppar (i pixlar):</h3><ul>";
+
+            fingerTips.forEach((tipIndex, i) => {
+                const tip = landmarks[tipIndex];
+                const pip = landmarks[tipIndex - 2]; // Närmsta led inåt
+                const dx = (tip.x - pip.x) * canvasElement.width;
+                const dy = (tip.y - pip.y) * canvasElement.height;
+                const pixelWidth = Math.sqrt(dx * dx + dy * dy);
+                output.innerHTML += `<li>Finger ${i + 1}: ${pixelWidth.toFixed(1)} pixlar (bredd vid toppen)</li>`;
+            });
+
+            output.innerHTML += "</ul><p>OBS: Konvertering till mm kräver linjalanalys – kommer i nästa steg.</p>";
+        }
+    </script>
+</body>
+</html>
