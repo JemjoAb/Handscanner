@@ -2,22 +2,18 @@
 <html lang="sv">
 <head>
   <meta charset="UTF-8" />
-  <title>Finger-för-finger Scanner med linjaldetektion</title>
+  <title>Finger-scanner med linjal</title>
   <style>
     body { font-family: sans-serif; padding: 20px; text-align: center; }
     video, canvas { border: 1px solid #ccc; margin-top: 10px; width: 100%; max-width: 640px; }
-    button, select { margin: 5px; padding: 10px 20px; font-size: 16px; }
+    button { margin: 5px; padding: 10px 20px; font-size: 16px; }
     .finger-buttons { margin-top: 15px; }
     #status { font-weight: bold; margin-top: 10px; }
   </style>
 </head>
 <body>
-  <h1>Finger-för-finger Scanner</h1>
-  <p>Placera ett finger i bild med en vit linjal eller tumstock (mm-skala) nedanför.</p>
-
-  <label for="cameraSelect">Välj kamera:</label>
-  <select id="cameraSelect"></select>
-  <button onclick="startCamera()">Starta kamera</button>
+  <h1>Finger-scanner</h1>
+  <p>Lägg ett finger + en linjal (mm-skala) i bild. Appen startar automatiskt med bakre kamera.</p>
 
   <div id="status">Ingen finger vald ännu.</div>
   <video id="video" autoplay playsinline muted></video><br />
@@ -36,50 +32,35 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
+
   <script>
     const videoElement = document.getElementById('video');
     const canvasElement = document.getElementById('canvas');
     const canvasCtx = canvasElement.getContext('2d');
     const output = document.getElementById('output');
     const status = document.getElementById('status');
-    const cameraSelect = document.getElementById('cameraSelect');
 
     let hands, stream, camera;
     let lastResults = null;
     let currentFinger = null;
-    let pixelsPerMM = 5.0; // fallback
+    let pixelsPerMM = 5.0;
     const profile = JSON.parse(localStorage.getItem('nailProfile') || '{}');
 
     const fingerNames = {
       1: "Tumme", 2: "Pekfinger", 3: "Långfinger", 4: "Ringfinger", 5: "Lillfinger"
     };
 
-    async function listCameras() {
+    async function startCamera() {
       try {
-        await navigator.mediaDevices.getUserMedia({ video: true }); // kräver tillgång först
-      } catch (e) {
-        console.warn("Kameratillgång krävs först");
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: "environment" } }
+        });
+      } catch (err) {
+        status.textContent = "❌ Kunde inte starta bakre kameran.";
+        console.error(err);
+        return;
       }
 
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(device => device.kind === "videoinput");
-      cameraSelect.innerHTML = "";
-
-      videoDevices.forEach((device, index) => {
-        const option = document.createElement("option");
-        option.value = device.deviceId;
-        option.text = device.label || `Kamera ${index + 1}`;
-        cameraSelect.appendChild(option);
-      });
-    }
-
-    async function startCamera() {
-      if (stream) stream.getTracks().forEach(track => track.stop());
-
-      const deviceId = cameraSelect.value;
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: deviceId } }
-      });
       videoElement.srcObject = stream;
 
       hands = new Hands({
@@ -206,7 +187,7 @@
       output.innerHTML = "<p>Profilen är nu rensad.</p>";
     }
 
-    window.addEventListener("DOMContentLoaded", listCameras);
+    window.addEventListener("DOMContentLoaded", startCamera);
   </script>
 </body>
 </html>
