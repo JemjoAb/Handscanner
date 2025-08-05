@@ -1,102 +1,177 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="sv">
 <head>
-    <meta charset="UTF-8">
-    <title>Handscanner V2</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; text-align: center; }
-        video, canvas { border: 1px solid #ccc; margin-top: 10px; width: 100%; max-width: 640px; }
-        button { margin-top: 10px; padding: 10px 20px; font-size: 16px; }
-    </style>
+  <meta charset="UTF-8" />
+  <title>Finger-för-finger Scanner</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; text-align: center; }
+    video, canvas { border: 1px solid #ccc; margin-top: 10px; width: 100%; max-width: 640px; }
+    button { margin: 5px; padding: 10px 20px; font-size: 16px; }
+    .finger-buttons { margin-top: 15px; }
+    #status { font-weight: bold; margin-top: 10px; }
+  </style>
 </head>
 <body>
-    <h1>Automatisk Handscanner</h1>
-    <p>Placera handen med en linjal i bild. Tryck på "Starta kamera" och sedan "Analysera".</p>
-    <video id="video" autoplay playsinline muted></video><br>
-    <button onclick="startCamera()">Starta kamera</button>
-    <button onclick="analyze()">Analysera</button>
-    <canvas id="canvas" width="640" height="480"></canvas>
-    <div id="output"></div>
+  <h1>Finger-för-finger Scanner</h1>
+  <p>Placera ett finger i bild med linjal bredvid. Tryck på rätt knapp för att analysera det.</p>
+  <div id="status">Ingen finger vald ännu.</div>
+  <video id="video" autoplay playsinline muted></video><br />
+  <button onclick="startCamera()">Starta kamera</button>
+  <div class="finger-buttons">
+    <button onclick="setFinger(1)">Tumme</button>
+    <button onclick="setFinger(2)">Pekfinger</button>
+    <button onclick="setFinger(3)">Långfinger</button>
+    <button onclick="setFinger(4)">Ringfinger</button>
+    <button onclick="setFinger(5)">Lillfinger</button>
+    <button onclick="showProfile()">Visa hela profil</button>
+    <button onclick="clearProfile()">Rensa profil</button>
+  </div>
+  <canvas id="canvas" width="640" height="480"></canvas>
+  <div id="output"></div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
 
-    <script>
-        const videoElement = document.getElementById('video');
-        const canvasElement = document.getElementById('canvas');
-        const canvasCtx = canvasElement.getContext('2d');
-        const output = document.getElementById('output');
-        let hands, camera;
-        let lastResults = null;
+  <script>
+    const videoElement = document.getElementById('video');
+    const canvasElement = document.getElementById('canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const output = document.getElementById('output');
+    const status = document.getElementById('status');
 
-        async function startCamera() {
-            try {
-                videoElement.srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
-            } catch (err) {
-                output.innerHTML = "<p><strong>Fel:</strong> Kameran kunde inte startas. Kontrollera behörigheter.</p>";
-                return;
-            }
+    let hands, camera;
+    let lastResults = null;
+    let currentFinger = null;
+    const profile = JSON.parse(localStorage.getItem('nailProfile') || '{}');
 
-            hands = new Hands({
-                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-            });
+    const fingerNames = {
+      1: "Tumme",
+      2: "Pekfinger",
+      3: "Långfinger",
+      4: "Ringfinger",
+      5: "Lillfinger"
+    };
 
-            hands.setOptions({
-                maxNumHands: 1,
-                modelComplexity: 1,
-                minDetectionConfidence: 0.7,
-                minTrackingConfidence: 0.7
-            });
+    async function startCamera() {
+      try {
+        videoElement.srcObject = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: "environment" } }
+        });
+      } catch (err) {
+        output.innerHTML = "<p><strong>Fel:</strong> Kameran kunde inte startas.</p>";
+        return;
+      }
 
-            hands.onResults(onResults);
+      hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
 
-            camera = new Camera(videoElement, {
-                onFrame: async () => {
-                    await hands.send({ image: videoElement });
-                },
-                width: 640,
-                height: 480
-            });
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7
+      });
 
-            camera.start();
+      hands.onResults(onResults);
+
+      camera = new Camera(videoElement, {
+        onFrame: async () => {
+          await hands.send({ image: videoElement });
+        },
+        width: 640,
+        height: 480
+      });
+
+      camera.start();
+    }
+
+    function onResults(results) {
+      lastResults = results;
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+      if (results.multiHandLandmarks) {
+        for (const landmarks of results.multiHandLandmarks) {
+          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 2 });
+          drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 1 });
         }
+      }
+      canvasCtx.restore();
 
-        function onResults(results) {
-            lastResults = results;
-            canvasCtx.save();
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-            if (results.multiHandLandmarks) {
-                for (const landmarks of results.multiHandLandmarks) {
-                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 2 });
-                    drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 1 });
-                }
-            }
-            canvasCtx.restore();
-        }
+      if (currentFinger) {
+        analyze(currentFinger);
+      }
+    }
 
-        function analyze() {
-            if (!lastResults || !lastResults.multiHandLandmarks || lastResults.multiHandLandmarks.length === 0) {
-                output.innerHTML = "<p>Ingen hand hittades.</p>";
-                return;
-            }
+    function estimatePixelsPerMM() {
+      return 5.0;
+    }
 
-            const landmarks = lastResults.multiHandLandmarks[0];
-            const fingerTips = [4, 8, 12, 16, 20]; // Tumme till lillfinger
-            output.innerHTML = "<h3>Uppmätta fingertoppar (i pixlar):</h3><ul>";
+    function getNailSize(mm) {
+      const sizes = [
+        { size: 0, width: 18 },
+        { size: 1, width: 17 },
+        { size: 2, width: 16 },
+        { size: 3, width: 15 },
+        { size: 4, width: 14 },
+        { size: 5, width: 13 },
+        { size: 6, width: 12 },
+        { size: 7, width: 11 },
+        { size: 8, width: 10 },
+        { size: 9, width: 9 },
+        { size: 10, width: 8 },
+        { size: 11, width: 7 }
+      ];
+      return sizes.reduce((prev, curr) =>
+        Math.abs(curr.width - mm) < Math.abs(prev.width - mm) ? curr : prev
+      );
+    }
 
-            fingerTips.forEach((tipIndex, i) => {
-                const tip = landmarks[tipIndex];
-                const pip = landmarks[tipIndex - 2]; // Närmsta led inåt
-                const dx = (tip.x - pip.x) * canvasElement.width;
-                const dy = (tip.y - pip.y) * canvasElement.height;
-                const pixelWidth = Math.sqrt(dx * dx + dy * dy);
-                output.innerHTML += `<li>Finger ${i + 1}: ${pixelWidth.toFixed(1)} pixlar (bredd vid toppen)</li>`;
-            });
+    function setFinger(num) {
+      currentFinger = num;
+      status.textContent = `Placera ${fingerNames[num]} i bild...`;
+    }
 
-            output.innerHTML += "</ul><p>För konvertering till mm, placera linjal i bilden (kommer i nästa steg).</p>";
-        }
-    </script>
+    function analyze(fingerNumber) {
+      if (!lastResults || !lastResults.multiHandLandmarks.length) return;
+
+      const landmarks = lastResults.multiHandLandmarks[0];
+      const pixelsPerMM = estimatePixelsPerMM();
+
+      const tipIndex = [4, 8, 12, 16, 20][fingerNumber - 1];
+      const pipIndex = tipIndex - 2;
+      const tip = landmarks[tipIndex];
+      const pip = landmarks[pipIndex];
+      const dx = (tip.x - pip.x) * canvasElement.width;
+      const dy = (tip.y - pip.y) * canvasElement.height;
+      const pixelWidth = Math.sqrt(dx * dx + dy * dy);
+      const mm = pixelWidth / pixelsPerMM;
+      const size = getNailSize(mm);
+
+      const name = fingerNames[fingerNumber];
+      profile[name] = { mm: mm.toFixed(1), size: size.size };
+      localStorage.setItem('nailProfile', JSON.stringify(profile));
+
+      output.innerHTML = `<p>${name}: ${mm.toFixed(1)} mm → Storlek ${size.size} (${size.width} mm)</p>`;
+      currentFinger = null;
+      status.textContent = "Finger sparat. Välj nästa.";
+    }
+
+    function showProfile() {
+      output.innerHTML = "<h3>Din nagelstorleksprofil:</h3><ul>";
+      Object.keys(profile).forEach(f => {
+        const p = profile[f];
+        output.innerHTML += `<li><strong>${f}</strong>: ${p.mm} mm → Storlek ${p.size}</li>`;
+      });
+      output.innerHTML += "</ul>";
+    }
+
+    function clearProfile() {
+      localStorage.removeItem('nailProfile');
+      output.innerHTML = "<p>Profilen är nu rensad.</p>";
+    }
+  </script>
 </body>
 </html>
