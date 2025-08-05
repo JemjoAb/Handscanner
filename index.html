@@ -2,21 +2,25 @@
 <html lang="sv">
 <head>
   <meta charset="UTF-8" />
-  <title>Finger-för-finger Scanner</title>
+  <title>Finger-för-finger Scanner med linjaldetektion</title>
   <style>
     body { font-family: sans-serif; padding: 20px; text-align: center; }
     video, canvas { border: 1px solid #ccc; margin-top: 10px; width: 100%; max-width: 640px; }
-    button { margin: 5px; padding: 10px 20px; font-size: 16px; }
+    button, select { margin: 5px; padding: 10px 20px; font-size: 16px; }
     .finger-buttons { margin-top: 15px; }
     #status { font-weight: bold; margin-top: 10px; }
   </style>
 </head>
 <body>
   <h1>Finger-för-finger Scanner</h1>
-  <p>Placera ett finger i bild med linjal bredvid. Tryck på rätt knapp för att analysera det.</p>
+  <p>Placera ett finger i bild med en vit linjal eller tumstock (mm-skala) nedanför. Välj kamera och analysera.</p>
+
+  <label for="cameraSelect">Välj kamera:</label>
+  <select id="cameraSelect"></select>
+  <button onclick="startCamera()">Starta kamera</button>
+
   <div id="status">Ingen finger vald ännu.</div>
   <video id="video" autoplay playsinline muted></video><br />
-  <button onclick="startCamera()">Starta kamera</button>
   <div class="finger-buttons">
     <button onclick="setFinger(1)">Tumme</button>
     <button onclick="setFinger(2)">Pekfinger</button>
@@ -32,36 +36,44 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
-
-  <script>
+    <script>
     const videoElement = document.getElementById('video');
     const canvasElement = document.getElementById('canvas');
     const canvasCtx = canvasElement.getContext('2d');
     const output = document.getElementById('output');
     const status = document.getElementById('status');
+    const cameraSelect = document.getElementById('cameraSelect');
 
-    let hands, camera;
+    let hands, stream, camera;
     let lastResults = null;
     let currentFinger = null;
+    let pixelsPerMM = 5.0; // default fallback
     const profile = JSON.parse(localStorage.getItem('nailProfile') || '{}');
 
     const fingerNames = {
-      1: "Tumme",
-      2: "Pekfinger",
-      3: "Långfinger",
-      4: "Ringfinger",
-      5: "Lillfinger"
+      1: "Tumme", 2: "Pekfinger", 3: "Långfinger", 4: "Ringfinger", 5: "Lillfinger"
     };
 
+    async function listCameras() {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === "videoinput");
+      cameraSelect.innerHTML = "";
+      videoDevices.forEach((device, index) => {
+        const option = document.createElement("option");
+        option.value = device.deviceId;
+        option.text = device.label || `Kamera ${index + 1}`;
+        cameraSelect.appendChild(option);
+      });
+    }
+
     async function startCamera() {
-      try {
-        videoElement.srcObject = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" }
-        });
-      } catch (err) {
-        output.innerHTML = "<p><strong>Fel:</strong> Kameran kunde inte startas. Kontrollera behörigheter.</p>";
-        return;
-      }
+      if (stream) stream.getTracks().forEach(track => track.stop());
+
+      const deviceId = cameraSelect.value;
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: deviceId } }
+      });
+      videoElement.srcObject = stream;
 
       hands = new Hands({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -87,11 +99,41 @@
       camera.start();
     }
 
+    function detectPixelsPerMM() {
+      const imageData = canvasCtx.getImageData(0, canvasElement.height - 50, canvasElement.width, 40);
+      const row = imageData.data;
+      let lastDark = null;
+      let gaps = [];
+
+      for (let x = 0; x < canvasElement.width; x++) {
+        const index = (40 * canvasElement.width + x) * 4;
+        const r = row[index], g = row[index + 1], b = row[index + 2];
+        const brightness = (r + g + b) / 3;
+
+        if (brightness < 60) {
+          if (lastDark !== null) {
+            const gap = x - lastDark;
+            if (gap > 3 && gap < 30) {
+              gaps.push(gap);
+            }
+          }
+          lastDark = x;
+        }
+      }
+
+      if (gaps.length >= 5) {
+        const avg = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+        pixelsPerMM = avg;
+        output.innerHTML = `<p><strong>Skala upptäckt:</strong> ~${pixelsPerMM.toFixed(2)} pixlar/mm</p>` + output.innerHTML;
+      }
+    }
+
     function onResults(results) {
       lastResults = results;
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+      detectPixelsPerMM(); // varje frame
       if (results.multiHandLandmarks) {
         for (const landmarks of results.multiHandLandmarks) {
           drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 2 });
@@ -100,29 +142,15 @@
       }
       canvasCtx.restore();
 
-      if (currentFinger) {
-        analyze(currentFinger);
-      }
-    }
-
-    function estimatePixelsPerMM() {
-      return 5.0; // Justeras med linjalavkänning senare
+      if (currentFinger) analyze(currentFinger);
     }
 
     function getNailSize(mm) {
       const sizes = [
-        { size: 0, width: 18 },
-        { size: 1, width: 17 },
-        { size: 2, width: 16 },
-        { size: 3, width: 15 },
-        { size: 4, width: 14 },
-        { size: 5, width: 13 },
-        { size: 6, width: 12 },
-        { size: 7, width: 11 },
-        { size: 8, width: 10 },
-        { size: 9, width: 9 },
-        { size: 10, width: 8 },
-        { size: 11, width: 7 }
+        { size: 0, width: 18 }, { size: 1, width: 17 }, { size: 2, width: 16 },
+        { size: 3, width: 15 }, { size: 4, width: 14 }, { size: 5, width: 13 },
+        { size: 6, width: 12 }, { size: 7, width: 11 }, { size: 8, width: 10 },
+        { size: 9, width: 9 }, { size: 10, width: 8 }, { size: 11, width: 7 }
       ];
       return sizes.reduce((prev, curr) =>
         Math.abs(curr.width - mm) < Math.abs(prev.width - mm) ? curr : prev
@@ -138,8 +166,6 @@
       if (!lastResults || !lastResults.multiHandLandmarks.length) return;
 
       const landmarks = lastResults.multiHandLandmarks[0];
-      const pixelsPerMM = estimatePixelsPerMM();
-
       const tipIndex = [4, 8, 12, 16, 20][fingerNumber - 1];
       const pipIndex = tipIndex - 2;
       const tip = landmarks[tipIndex];
@@ -154,7 +180,7 @@
       profile[name] = { mm: mm.toFixed(1), size: size.size };
       localStorage.setItem('nailProfile', JSON.stringify(profile));
 
-      output.innerHTML = `<p>${name}: ${mm.toFixed(1)} mm → Storlek ${size.size} (${size.width} mm)</p>`;
+      output.innerHTML = `<p>${name}: ${mm.toFixed(1)} mm → Storlek ${size.size} (${size.width} mm)</p>` + output.innerHTML;
       currentFinger = null;
       status.textContent = "Finger sparat. Välj nästa.";
     }
@@ -172,6 +198,8 @@
       localStorage.removeItem('nailProfile');
       output.innerHTML = "<p>Profilen är nu rensad.</p>";
     }
+
+    window.addEventListener("DOMContentLoaded", listCameras);
   </script>
 </body>
 </html>
