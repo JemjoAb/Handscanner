@@ -13,7 +13,7 @@
 </head>
 <body>
   <h1>Finger-för-finger Scanner</h1>
-  <p>Placera ett finger i bild med en vit linjal eller tumstock (mm-skala) nedanför. Välj kamera och analysera.</p>
+  <p>Placera ett finger i bild med en vit linjal eller tumstock (mm-skala) nedanför.</p>
 
   <label for="cameraSelect">Välj kamera:</label>
   <select id="cameraSelect"></select>
@@ -27,7 +27,7 @@
     <button onclick="setFinger(3)">Långfinger</button>
     <button onclick="setFinger(4)">Ringfinger</button>
     <button onclick="setFinger(5)">Lillfinger</button>
-    <button onclick="showProfile()">Visa hela profil</button>
+    <button onclick="showProfile()">Visa profil</button>
     <button onclick="clearProfile()">Rensa profil</button>
   </div>
   <canvas id="canvas" width="640" height="480"></canvas>
@@ -36,7 +36,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
-    <script>
+  <script>
     const videoElement = document.getElementById('video');
     const canvasElement = document.getElementById('canvas');
     const canvasCtx = canvasElement.getContext('2d');
@@ -47,7 +47,7 @@
     let hands, stream, camera;
     let lastResults = null;
     let currentFinger = null;
-    let pixelsPerMM = 5.0; // default fallback
+    let pixelsPerMM = 5.0; // fallback
     const profile = JSON.parse(localStorage.getItem('nailProfile') || '{}');
 
     const fingerNames = {
@@ -55,9 +55,16 @@
     };
 
     async function listCameras() {
+      try {
+        await navigator.mediaDevices.getUserMedia({ video: true }); // kräver tillgång först
+      } catch (e) {
+        console.warn("Kameratillgång krävs först");
+      }
+
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === "videoinput");
       cameraSelect.innerHTML = "";
+
       videoDevices.forEach((device, index) => {
         const option = document.createElement("option");
         option.value = device.deviceId;
@@ -133,7 +140,7 @@
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-      detectPixelsPerMM(); // varje frame
+      detectPixelsPerMM();
       if (results.multiHandLandmarks) {
         for (const landmarks of results.multiHandLandmarks) {
           drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 2 });
