@@ -1,18 +1,19 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Automatisk Handscanner</title>
+    <title>Handscanner V2</title>
     <style>
         body { font-family: sans-serif; padding: 20px; text-align: center; }
-        video, canvas { border: 1px solid #ccc; margin-top: 10px; }
+        video, canvas { border: 1px solid #ccc; margin-top: 10px; width: 100%; max-width: 640px; }
+        button { margin-top: 10px; padding: 10px 20px; font-size: 16px; }
     </style>
 </head>
 <body>
     <h1>Automatisk Handscanner</h1>
-    <p>Placera handen med en linjal i bild. Tryck på "Analysera" för att mäta nagelbreddarna automatiskt.</p>
-    <video id="video" width="640" height="480" autoplay></video><br>
+    <p>Placera handen med en linjal i bild. Tryck på "Starta kamera" och sedan "Analysera".</p>
+    <video id="video" autoplay playsinline muted></video><br>
+    <button onclick="startCamera()">Starta kamera</button>
     <button onclick="analyze()">Analysera</button>
     <canvas id="canvas" width="640" height="480"></canvas>
     <div id="output"></div>
@@ -26,30 +27,40 @@
         const canvasElement = document.getElementById('canvas');
         const canvasCtx = canvasElement.getContext('2d');
         const output = document.getElementById('output');
-
-        const hands = new Hands({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-        });
-
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
-        });
-
-        hands.onResults(onResults);
-
-        const camera = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({ image: videoElement });
-            },
-            width: 640,
-            height: 480
-        });
-        camera.start();
-
+        let hands, camera;
         let lastResults = null;
+
+        async function startCamera() {
+            try {
+                videoElement.srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
+            } catch (err) {
+                output.innerHTML = "<p><strong>Fel:</strong> Kameran kunde inte startas. Kontrollera behörigheter.</p>";
+                return;
+            }
+
+            hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.7,
+                minTrackingConfidence: 0.7
+            });
+
+            hands.onResults(onResults);
+
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({ image: videoElement });
+                },
+                width: 640,
+                height: 480
+            });
+
+            camera.start();
+        }
 
         function onResults(results) {
             lastResults = results;
@@ -84,7 +95,7 @@
                 output.innerHTML += `<li>Finger ${i + 1}: ${pixelWidth.toFixed(1)} pixlar (bredd vid toppen)</li>`;
             });
 
-            output.innerHTML += "</ul><p>OBS: Konvertering till mm kräver linjalanalys – kommer i nästa steg.</p>";
+            output.innerHTML += "</ul><p>För konvertering till mm, placera linjal i bilden (kommer i nästa steg).</p>";
         }
     </script>
 </body>
