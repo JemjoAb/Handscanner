@@ -56,10 +56,10 @@
     async function startCamera() {
       try {
         videoElement.srcObject = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { exact: "environment" } }
+          video: { facingMode: "environment" }
         });
       } catch (err) {
-        output.innerHTML = "<p><strong>Fel:</strong> Kameran kunde inte startas.</p>";
+        output.innerHTML = "<p><strong>Fel:</strong> Kameran kunde inte startas. Kontrollera behörigheter.</p>";
         return;
       }
 
@@ -106,7 +106,7 @@
     }
 
     function estimatePixelsPerMM() {
-      return 5.0;
+      return 5.0; // Justeras med linjalavkänning senare
     }
 
     function getNailSize(mm) {
